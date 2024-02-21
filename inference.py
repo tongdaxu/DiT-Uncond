@@ -17,19 +17,18 @@ from diffusion.model.utils import prepare_prompt_ar
 from diffusion import IDDPM, DPMS, SASolverSampler
 from tools.download import find_model
 from diffusion.model.nets import PixArtMS_XL_2, PixArt_XL_2
-from diffusion.model.t5 import T5Embedder
-from diffusion.data.datasets import get_chunks, ASPECT_RATIO_512_TEST, ASPECT_RATIO_1024_TEST
+from diffusion.data.datasets import get_chunks, ASPECT_RATIO_256_TEST, ASPECT_RATIO_512_TEST, ASPECT_RATIO_1024_TEST
 
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--image_size', default=1024, type=int)
-    parser.add_argument('--t5_path', default='output/pretrained_models/t5_ckpts', type=str)
-    parser.add_argument('--tokenizer_path', default='output/pretrained_models/sd-vae-ft-ema', type=str)
-    parser.add_argument('--txt_file', default='asset/samples.txt', type=str)
-    parser.add_argument('--model_path', default='output/pretrained_models/PixArt-XL-2-1024x1024.pth', type=str)
-    parser.add_argument('--bs', default=1, type=int)
-    parser.add_argument('--cfg_scale', default=4.5, type=float)
+    parser.add_argument('--image_size', default=512, type=int)
+    parser.add_argument('--tokenizer_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins/sd-vae-ft-ema', type=str)
+    parser.add_argument('--n', default=1000, type=int)
+    parser.add_argument('--model_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins/PixArt-XL-2-512x512.pth', type=str)
+    # parser.add_argument('--model_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/output/trained_model/checkpoints/epoch_4_step_10000.pth', type=str)
+    parser.add_argument('--bs', default=8, type=int)
+    parser.add_argument('--cfg_scale', default=0.0, type=float)
     parser.add_argument('--sampling_algo', default='dpm-solver', type=str, choices=['iddpm', 'dpm-solver', 'sa-solver'])
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--dataset', default='custom', type=str)
@@ -51,30 +50,14 @@ def visualize(items, bs, sample_steps, cfg_scale):
 
     for chunk in tqdm(list(get_chunks(items, bs)), unit='batch'):
 
-        prompts = []
-        if bs == 1:
-            prompt_clean, _, hw, ar, custom_hw = prepare_prompt_ar(chunk[0], base_ratios, device=device, show=False)  # ar for aspect ratio
-            if args.image_size == 1024:
-                latent_size_h, latent_size_w = int(hw[0, 0] // 8), int(hw[0, 1] // 8)
-            else:
-                hw = torch.tensor([[args.image_size, args.image_size]], dtype=torch.float, device=device).repeat(bs, 1)
-                ar = torch.tensor([[1.]], device=device).repeat(bs, 1)
-                latent_size_h, latent_size_w = latent_size, latent_size
-            prompts.append(prompt_clean.strip())
-        else:
-            hw = torch.tensor([[args.image_size, args.image_size]], dtype=torch.float, device=device).repeat(bs, 1)
-            ar = torch.tensor([[1.]], device=device).repeat(bs, 1)
-            for prompt in chunk:
-                prompts.append(prepare_prompt_ar(prompt, base_ratios, device=device, show=False)[0].strip())
-            latent_size_h, latent_size_w = latent_size, latent_size
-
+        prompts = chunk
+        hw = torch.tensor([[args.image_size, args.image_size]], dtype=torch.float, device=device).repeat(bs, 1)
+        ar = torch.tensor([[1.]], device=device).repeat(bs, 1)
+        latent_size_h, latent_size_w = latent_size, latent_size
         null_y = model.y_embedder.y_embedding[None].repeat(len(prompts), 1, 1)[:, None]
 
         with torch.no_grad():
-            caption_embs, emb_masks = t5.get_text_embeddings(prompts)
-            caption_embs = caption_embs.float()[:, None]
-            print('finish embedding')
-
+            caption_embs, emb_masks = null_y, None
             if args.sampling_algo == 'iddpm':
                 # Create sampling noise:
                 n = len(prompts)
@@ -125,7 +108,7 @@ def visualize(items, bs, sample_steps, cfg_scale):
         # Save images:
         os.umask(0o000)  # file permission: 666; dir permission: 777
         for i, sample in enumerate(samples):
-            save_path = os.path.join(save_root, f"{prompts[i][:100]}.jpg")
+            save_path = os.path.join(save_root, f"{prompts[i][:100]}.png")
             print("Saving path: ", save_path)
             save_image(sample, save_path, nrow=1, normalize=True, value_range=(-1, 1))
 
@@ -140,14 +123,14 @@ if __name__ == '__main__':
 
     # only support fixed latent size currently
     latent_size = args.image_size // 8
-    lewei_scale = {512: 1, 1024: 2}     # trick for positional embedding interpolation
+    lewei_scale = {256: 1, 512: 1, 1024: 2}     # trick for positional embedding interpolation
     sample_steps_dict = {'iddpm': 100, 'dpm-solver': 20, 'sa-solver': 25}
     sample_steps = args.step if args.step != -1 else sample_steps_dict[args.sampling_algo]
     weight_dtype = torch.float16
     print(f"Inference with {weight_dtype}")
 
     # model setting
-    if args.image_size == 512:
+    if args.image_size == 512 or 256:
         model = PixArt_XL_2(input_size=latent_size, lewei_scale=lewei_scale[args.image_size]).to(device)
     else:
         model = PixArtMS_XL_2(input_size=latent_size, lewei_scale=lewei_scale[args.image_size]).to(device)
@@ -163,13 +146,10 @@ if __name__ == '__main__':
     base_ratios = eval(f'ASPECT_RATIO_{args.image_size}_TEST')
 
     vae = AutoencoderKL.from_pretrained(args.tokenizer_path).to(device)
-    t5 = T5Embedder(device="cuda", local_cache=True, cache_dir=args.t5_path, torch_dtype=torch.float)
     work_dir = os.path.join(*args.model_path.split('/')[:-2])
     work_dir = f'/{work_dir}' if args.model_path[0] == '/' else work_dir
 
-    # data setting
-    with open(args.txt_file, 'r') as f:
-        items = [item.strip() for item in f.readlines()]
+    items = ['{0:05d}'.format(i) for i in range(args.n)]
 
     # img save setting
     try:

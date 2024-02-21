@@ -12,7 +12,6 @@ from tqdm import tqdm
 import argparse
 import threading
 from queue import Queue
-from pathlib import Path
 from torch.utils.data import DataLoader, RandomSampler
 from accelerate import Accelerator
 from torchvision.transforms.functional import InterpolationMode
@@ -219,13 +218,16 @@ def extract_img_vae():
         if os.path.exists(f"{save_path}.npy"):
             continue
         try:
-            img = Image.open(f'{args.dataset_root}/{image_name}')
+            if args.dataset_root == "":
+                img = Image.open(f'{image_name}')
+            else:
+                img = Image.open(f'{args.dataset_root}/{image_name}')
             img = transform(img).to(device)[None]
 
             with torch.no_grad():
                 posterior = vae.encode(img).latent_dist
                 z = torch.cat([posterior.mean, posterior.std], dim=1).detach().cpu().numpy().squeeze()
-
+            Path(save_path).parent.mkdir(parents=True, exist_ok=True)
             np.save(save_path, z)
         except Exception as e:
             print(e)
@@ -318,7 +320,7 @@ if __name__ == '__main__':
     image_resize = args.img_size
 
     # prepare extracted caption t5 features for training
-    extract_caption_t5()
+    # extract_caption_t5()
 
     # prepare extracted image vae features for training
     if args.multi_scale:
