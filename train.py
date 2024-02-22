@@ -94,8 +94,8 @@ def train():
                     grad_norm = accelerator.clip_grad_norm_(model.parameters(), config.gradient_clip)
                 optimizer.step()
                 lr_scheduler.step()
-                if accelerator.sync_gradients:
-                    ema_update(model_ema, model, config.ema_rate)
+                # if accelerator.sync_gradients:
+                #     ema_update(model_ema, model, config.ema_rate)
 
             lr = lr_scheduler.get_last_lr()[0]
             logs = {args.loss_report_name: accelerator.gather(loss).mean().item()}
@@ -131,7 +131,7 @@ def train():
                                     epoch=epoch,
                                     step=(epoch - 1) * len(train_dataloader) + step + 1,
                                     model=accelerator.unwrap_model(model),
-                                    model_ema=accelerator.unwrap_model(model_ema),
+                                    model_ema=None,
                                     optimizer=optimizer,
                                     lr_scheduler=lr_scheduler
                                     )
@@ -145,7 +145,7 @@ def train():
                                 epoch=epoch,
                                 step=(epoch - 1) * len(train_dataloader) + step + 1,
                                 model=accelerator.unwrap_model(model),
-                                model_ema=accelerator.unwrap_model(model_ema),
+                                model_ema=None,
                                 optimizer=optimizer,
                                 lr_scheduler=lr_scheduler
                                 )
@@ -265,7 +265,7 @@ if __name__ == '__main__':
                         pred_sigma=pred_sigma,
                         **model_kwargs).train()
     logger.info(f"{model.__class__.__name__} Model Parameters: {sum(p.numel() for p in model.parameters()):,}")
-    model_ema = deepcopy(model).eval()
+    # model_ema = deepcopy(model).eval()
 
     if config.load_from is not None:
         if args.load_from is not None:
@@ -274,7 +274,7 @@ if __name__ == '__main__':
         logger.warning(f'Missing keys: {missing}')
         logger.warning(f'Unexpected keys: {unexpected}')
 
-    ema_update(model_ema, model, 0.)
+    # ema_update(model_ema, model, 0.)
     if not config.data.load_vae_feat:
         vae = AutoencoderKL.from_pretrained(config.vae_pretrained).cuda()
 
@@ -319,7 +319,7 @@ if __name__ == '__main__':
     if config.resume_from is not None and config.resume_from['checkpoint'] is not None:
         start_epoch, missing, unexpected = load_checkpoint(**config.resume_from,
                                                            model=model,
-                                                           model_ema=model_ema,
+                                                           model_ema=None,
                                                            optimizer=optimizer,
                                                            lr_scheduler=lr_scheduler,
                                                            )
@@ -329,6 +329,7 @@ if __name__ == '__main__':
     # Prepare everything
     # There is no specific order to remember, you just need to unpack the
     # objects in the same order you gave them to the prepare method.
-    model, model_ema = accelerator.prepare(model, model_ema)
+    # model, model_ema = accelerator.prepare(model, model_ema)
+    model = accelerator.prepare(model)
     optimizer, train_dataloader, lr_scheduler = accelerator.prepare(optimizer, train_dataloader, lr_scheduler)
     train()

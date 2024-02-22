@@ -23,9 +23,9 @@ from diffusion.data.datasets import get_chunks, ASPECT_RATIO_256_TEST, ASPECT_RA
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--image_size', default=512, type=int)
-    parser.add_argument('--tokenizer_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins/sd-vae-ft-ema', type=str)
+    parser.add_argument('--tokenizer_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins_share/sd-vae-ft-ema', type=str)
     parser.add_argument('--n', default=1000, type=int)
-    parser.add_argument('--model_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins/PixArt-XL-2-512x512.pth', type=str)
+    parser.add_argument('--model_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins_share/PixArt-XL-2-512x512.pth', type=str)
     # parser.add_argument('--model_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/output/trained_model/checkpoints/epoch_4_step_10000.pth', type=str)
     parser.add_argument('--bs', default=8, type=int)
     parser.add_argument('--cfg_scale', default=0.0, type=float)

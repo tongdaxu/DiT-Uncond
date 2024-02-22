@@ -7,8 +7,8 @@ import torch.nn as nn
 import os
 from PIL import Image
 
-ref_path = '/NEW_EDS/JJ_Group/xutd/common_datasets/imagenet_512x512/val1k'
-dis_path = '/NEW_EDS/JJ_Group/xutd/PixArt-alpha/results/512x512_art'
+ref_path = '/NEW_EDS/JJ_Group/xutd/common_datasets/imagenet_256x256/val1k'
+dis_path = '/NEW_EDS/JJ_Group/zhuzr/DiT_copy/samples/DiT-XL-2-pretrained-size-256-vae-mse-cfg-1.0-seed-0'
 
 class ImageDataset(torch.utils.data.Dataset):
     def __init__(self, root, transform=None):

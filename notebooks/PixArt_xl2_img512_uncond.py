@@ -1,9 +1,7 @@
 _base_ = ['/NEW_EDS/JJ_Group/xutd/PixArt-alpha/configs/PixArt_xl2_internal.py']
 data_root = '/NEW_EDS/JJ_Group/xutd/PixArt-alpha'
 
-image_list_json = ['data_info_512train.json',]
-
-data = dict(type='InternalData', root='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins', image_list_json=image_list_json, transform='default_train', load_vae_feat=True)
+data = dict(type='UncondDataset', root='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/tools/sam_512_sd_list.txt', dummy_caption_path='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins_share/dummy_caption.npz', transform='default_train')
 image_size = 512
 
 # model setting
@@ -12,8 +10,8 @@ window_size=0
 use_rel_pos=False
 model = 'PixArt_XL_2'
 fp32_attention = True
-load_from = "/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins/PixArt-XL-2-512x512.pth"
-vae_pretrained = "/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins/sd-vae-ft-ema"
+load_from = "/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins_share/PixArt-XL-2-512x512.pth"
+vae_pretrained = "/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins_share/sd-vae-ft-ema"
 lewei_scale = 1.0
 
 # training setting
