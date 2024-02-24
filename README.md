@@ -1,3 +1,9 @@
+## Unconditional Fork of
+* PixArt-Alpha
+* DiT
+
+## Original Readme:
+
 <p align="center">
   <img src="asset/logo.png"  height=120>
 </p>

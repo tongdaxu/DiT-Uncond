@@ -1,6 +1,6 @@
 import os
-in_path = '/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins_share/sam_sd_vae'
-out_path = 'sam_512_sd_list.txt'
+in_path = '/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins/img_vae_features/512resolution/noflip'
+out_path = 'imagenet_512_sd_list.txt'
 
 with open(out_path, "a+") as f:
     cnt = 0

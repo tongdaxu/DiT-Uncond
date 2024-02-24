@@ -40,13 +40,6 @@ def set_fsdp_env():
     os.environ["FSDP_TRANSFORMER_CLS_TO_WRAP"] = 'PixArtBlock'
 
 
-def ema_update(model_dest: nn.Module, model_src: nn.Module, rate):
-    param_dict_src = dict(model_src.named_parameters())
-    for p_name, p_dest in model_dest.named_parameters():
-        p_src = param_dict_src[p_name]
-        assert p_src is not p_dest
-        p_dest.data.mul_(rate).add_((1 - rate) * p_src.data)
-
 def train():
     if config.get('debug_nan', False):
         DebugUnderflowOverflow(model)
@@ -76,12 +69,15 @@ def train():
                         else:
                             z = posterior.mode()
             clean_images = z * config.scale_factor
-            y = batch[1]
+            # Sample a random timestep for each image
+            bs = clean_images.shape[0]
+            if config.model == 'DiT_XL_2':
+                y = torch.tensor([1000] * bs, device=clean_images.device)
+            else:
+                y = batch[1]
             y_mask = batch[2]
             data_info = batch[3]
 
-            # Sample a random timestep for each image
-            bs = clean_images.shape[0]
             timesteps = torch.randint(0, config.train_sampling_steps, (bs,), device=clean_images.device).long()
             grad_norm = None
             with accelerator.accumulate(model):
@@ -94,8 +90,6 @@ def train():
                     grad_norm = accelerator.clip_grad_norm_(model.parameters(), config.gradient_clip)
                 optimizer.step()
                 lr_scheduler.step()
-                # if accelerator.sync_gradients:
-                #     ema_update(model_ema, model, config.ema_rate)
 
             lr = lr_scheduler.get_last_lr()[0]
             logs = {args.loss_report_name: accelerator.gather(loss).mean().item()}
@@ -257,15 +251,24 @@ if __name__ == '__main__':
 
     # build models
     train_diffusion = IDDPM(str(config.train_sampling_steps), learn_sigma=learn_sigma, pred_sigma=pred_sigma, snr=config.snr_loss)
-    model = build_model(config.model,
-                        config.grad_checkpointing,
-                        config.get('fp32_attention', False),
-                        input_size=latent_size,
-                        learn_sigma=learn_sigma,
-                        pred_sigma=pred_sigma,
-                        **model_kwargs).train()
+    if config.model == 'PixArt_XL_2':
+        model = build_model(config.model,
+                            config.grad_checkpointing,
+                            config.get('fp32_attention', False),
+                            input_size=latent_size,
+                            learn_sigma=learn_sigma,
+                            pred_sigma=pred_sigma,
+                            **model_kwargs).train()
+    else:
+        model = build_model(config.model,
+                            config.grad_checkpointing,
+                            config.get('fp32_attention', False),
+                            input_size=latent_size,
+                            num_classes=1000,
+                            class_dropout_prob= config.class_dropout_prob
+                            ).train()
+
     logger.info(f"{model.__class__.__name__} Model Parameters: {sum(p.numel() for p in model.parameters()):,}")
-    # model_ema = deepcopy(model).eval()
 
     if config.load_from is not None:
         if args.load_from is not None:
@@ -274,7 +277,6 @@ if __name__ == '__main__':
         logger.warning(f'Missing keys: {missing}')
         logger.warning(f'Unexpected keys: {unexpected}')
 
-    # ema_update(model_ema, model, 0.)
     if not config.data.load_vae_feat:
         vae = AutoencoderKL.from_pretrained(config.vae_pretrained).cuda()
 

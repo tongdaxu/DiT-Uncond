@@ -49,7 +49,8 @@ def load_checkpoint(checkpoint,
     assert isinstance(checkpoint, str)
     ckpt_file = checkpoint
     checkpoint = torch.load(ckpt_file, map_location="cpu")
-
+    if 'state_dict' not in checkpoint:
+        checkpoint['state_dict'] = checkpoint
     state_dict_keys = ['pos_embed', 'base_model.pos_embed', 'model.pos_embed']
     for key in state_dict_keys:
         if key in checkpoint['state_dict']:

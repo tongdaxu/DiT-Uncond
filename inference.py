@@ -16,16 +16,16 @@ from diffusers.models import AutoencoderKL
 from diffusion.model.utils import prepare_prompt_ar
 from diffusion import IDDPM, DPMS, SASolverSampler
 from tools.download import find_model
-from diffusion.model.nets import PixArtMS_XL_2, PixArt_XL_2
+from diffusion.model.nets import PixArtMS_XL_2, PixArt_XL_2, DiT_XL_2
 from diffusion.data.datasets import get_chunks, ASPECT_RATIO_256_TEST, ASPECT_RATIO_512_TEST, ASPECT_RATIO_1024_TEST
 
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--image_size', default=512, type=int)
+    parser.add_argument('--image_size', default=256, type=int)
     parser.add_argument('--tokenizer_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins_share/sd-vae-ft-ema', type=str)
     parser.add_argument('--n', default=1000, type=int)
-    parser.add_argument('--model_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins_share/PixArt-XL-2-512x512.pth', type=str)
+    parser.add_argument('--model_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/output/trained_model_256/checkpoints/epoch_7_step_20000.pth', type=str)
     # parser.add_argument('--model_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/output/trained_model/checkpoints/epoch_4_step_10000.pth', type=str)
     parser.add_argument('--bs', default=8, type=int)
     parser.add_argument('--cfg_scale', default=0.0, type=float)
@@ -34,6 +34,7 @@ def get_args():
     parser.add_argument('--dataset', default='custom', type=str)
     parser.add_argument('--step', default=-1, type=int)
     parser.add_argument('--save_name', default='test_sample', type=str)
+    parser.add_argument('--model_type', default='pixart', type=str)
 
     return parser.parse_args()
 
@@ -54,8 +55,10 @@ def visualize(items, bs, sample_steps, cfg_scale):
         hw = torch.tensor([[args.image_size, args.image_size]], dtype=torch.float, device=device).repeat(bs, 1)
         ar = torch.tensor([[1.]], device=device).repeat(bs, 1)
         latent_size_h, latent_size_w = latent_size, latent_size
-        null_y = model.y_embedder.y_embedding[None].repeat(len(prompts), 1, 1)[:, None]
-
+        if args.model_type == 'pixart':
+            null_y = model.y_embedder.y_embedding[None].repeat(len(prompts), 1, 1)[:, None]
+        else:
+            null_y = torch.tensor([1000] * len(prompts), device=device)
         with torch.no_grad():
             caption_embs, emb_masks = null_y, None
             if args.sampling_algo == 'iddpm':
@@ -130,19 +133,26 @@ if __name__ == '__main__':
     print(f"Inference with {weight_dtype}")
 
     # model setting
-    if args.image_size == 512 or 256:
-        model = PixArt_XL_2(input_size=latent_size, lewei_scale=lewei_scale[args.image_size]).to(device)
+    if args.model_type == 'pixart':
+        if args.image_size == 512 or 256:
+            model = PixArt_XL_2(input_size=latent_size, lewei_scale=lewei_scale[args.image_size]).to(device)
+        else:
+            model = PixArtMS_XL_2(input_size=latent_size, lewei_scale=lewei_scale[args.image_size]).to(device)
     else:
-        model = PixArtMS_XL_2(input_size=latent_size, lewei_scale=lewei_scale[args.image_size]).to(device)
+        model = DiT_XL_2(input_size=latent_size, num_classes=1000).to(device)
 
     print(f"Generating sample from ckpt: {args.model_path}")
     state_dict = find_model(args.model_path)
+    if 'state_dict' not in state_dict:
+        state_dict['state_dict'] = state_dict
     del state_dict['state_dict']['pos_embed']
     missing, unexpected = model.load_state_dict(state_dict['state_dict'], strict=False)
+
     print('Missing keys: ', missing)
     print('Unexpected keys', unexpected)
     model.eval()
     model.to(weight_dtype)
+
     base_ratios = eval(f'ASPECT_RATIO_{args.image_size}_TEST')
 
     vae = AutoencoderKL.from_pretrained(args.tokenizer_path).to(device)
