@@ -425,6 +425,9 @@ class GaussianDiffusion:
         self,
         model,
         shape,
+        measurement,
+        measurement_cond_fn,
+        vae,
         noise=None,
         clip_denoised=True,
         denoised_fn=None,
@@ -455,6 +458,9 @@ class GaussianDiffusion:
         for sample in self.p_sample_loop_progressive(
             model,
             shape,
+            measurement=measurement,
+            measurement_cond_fn=measurement_cond_fn,
+            vae=vae,
             noise=noise,
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
@@ -464,12 +470,15 @@ class GaussianDiffusion:
             progress=progress,
         ):
             final = sample
-        return final["sample"]
+        return final
 
     def p_sample_loop_progressive(
         self,
         model,
         shape,
+        measurement,
+        measurement_cond_fn,
+        vae,
         noise=None,
         clip_denoised=True,
         denoised_fn=None,
@@ -488,7 +497,10 @@ class GaussianDiffusion:
         if device is None:
             device = next(model.parameters()).device
         assert isinstance(shape, (tuple, list))
-        img = noise if noise is not None else th.randn(*shape, device=device)
+        if noise is not None:
+            img = noise
+        else:
+            img = th.randn(*shape, device=device)
         indices = list(range(self.num_timesteps))[::-1]
 
         if progress:
@@ -499,18 +511,29 @@ class GaussianDiffusion:
 
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
-            with th.no_grad():
-                out = self.p_sample(
-                    model,
-                    img,
-                    t,
-                    clip_denoised=clip_denoised,
-                    denoised_fn=denoised_fn,
-                    cond_fn=cond_fn,
-                    model_kwargs=model_kwargs,
-                )
-                yield out
-                img = out["sample"]
+            
+            img = img.requires_grad_()
+            out = self.p_sample(
+                model,
+                img,
+                t,
+                clip_denoised=clip_denoised,
+                denoised_fn=denoised_fn,
+                cond_fn=cond_fn,
+                model_kwargs=model_kwargs,
+            )
+            # yield out
+            x_0_hat = vae.decode(out['pred_xstart'] / 0.18215).sample
+            noisy_measurement = self.q_sample(measurement, t=t)
+            img, distance = measurement_cond_fn(x_t=out['sample'],
+                                    measurement=measurement,
+                                    noisy_measurement=noisy_measurement,
+                                    x_prev=img,
+                                    x_0_hat=x_0_hat)
+            
+            img = img.detach_()
+
+        return img
 
     def ddim_sample(
         self,

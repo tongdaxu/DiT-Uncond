@@ -61,7 +61,6 @@ def download_other(model_name, model_zoo, output_dir):
         print(web_path)
         download_url(web_path, os.path.join(output_dir, model_name.split('/')[0]))
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_names', nargs='+', type=str, default=pretrained_models)

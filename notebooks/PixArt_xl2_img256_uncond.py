@@ -1,7 +1,7 @@
 _base_ = ['/NEW_EDS/JJ_Group/xutd/PixArt-alpha/configs/PixArt_xl2_internal.py']
 data_root = '/NEW_EDS/JJ_Group/xutd/PixArt-alpha'
 
-data = dict(type='UncondDataset', root='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/tools/imagenet_256_sd_list.txt', dummy_caption_path='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins_share/dummy_caption.npz', transform='default_train')
+data = dict(type='UncondDataset', root='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/tools/imagenet_256_sd_list.txt', transform='default_train')
 image_size = 256
 
 # model setting

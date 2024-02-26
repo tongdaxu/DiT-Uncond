@@ -5,8 +5,6 @@ current_file_path = Path(__file__).resolve()
 sys.path.insert(0, str(current_file_path.parent.parent))
 import warnings
 warnings.filterwarnings("ignore")  # ignore warning
-import sys
-print(sys.path)
 import re
 import argparse
 from datetime import datetime
@@ -20,21 +18,30 @@ from diffusion import IDDPM, DPMS, SASolverSampler
 from tools.download import find_model
 from diffusion.model.nets import PixArtMS_XL_2, PixArt_XL_2, DiT_XL_2
 from diffusion.data.datasets import get_chunks, ASPECT_RATIO_256_TEST, ASPECT_RATIO_512_TEST, ASPECT_RATIO_1024_TEST
+from data.dataloader import get_dataset, get_dataloader
+import yaml
+import torchvision.transforms as transforms
+from condition_methods import get_conditioning_method
+from measurements import get_noise, get_operator
 
+def load_yaml(file_path: str) -> dict:
+    with open(file_path) as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+    return config
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--image_size', default=256, type=int)
     parser.add_argument('--tokenizer_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins_share/sd-vae-ft-ema', type=str)
     parser.add_argument('--n', default=1000, type=int)
-    parser.add_argument('--model_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/output/trained_model_256/checkpoints/epoch_7_step_20000.pth', type=str)
+    parser.add_argument('--model_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins/PixArt-XL-2-SAM-256x256.pth', type=str)
     # parser.add_argument('--model_path', default='/NEW_EDS/JJ_Group/xutd/PixArt-alpha/output/trained_model/checkpoints/epoch_4_step_10000.pth', type=str)
     parser.add_argument('--bs', default=8, type=int)
     parser.add_argument('--cfg_scale', default=0.0, type=float)
     parser.add_argument('--sampling_algo', default='iddpm', type=str, choices=['iddpm', 'dpm-solver', 'sa-solver'])
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--dataset', default='custom', type=str)
-    parser.add_argument('--step', default=-1, type=int)
+    parser.add_argument('--step', default=1000, type=int)
     parser.add_argument('--save_name', default='test_sample', type=str)
     parser.add_argument('--model_type', default='pixart', type=str)
 
@@ -43,80 +50,52 @@ def get_args():
 
 def set_env(seed=0):
     torch.manual_seed(seed)
-    torch.set_grad_enabled(False)
+    torch.set_grad_enabled(True)
     for _ in range(30):
         torch.randn(1, 4, args.image_size, args.image_size)
 
 
-@torch.inference_mode()
 def visualize(items, bs, sample_steps, cfg_scale):
+    task_config = load_yaml("/NEW_EDS/JJ_Group/xutd/PixArt-alpha/super_resolution.yaml")    
+    measure_config = task_config['measurement']
+    operator = get_operator(device=device, **measure_config['operator'])
+    noiser = get_noise(**measure_config['noise'])
+    cond_config = task_config['conditioning']
+    cond_method = get_conditioning_method(cond_config['method'], operator, noiser, **cond_config['params'])
+    measurement_cond_fn = cond_method.conditioning
+    data_config = task_config['data']
+    transform = transforms.Compose([transforms.ToTensor(),
+                                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+    dataset = get_dataset(**data_config, transforms=transform)
+    loader = get_dataloader(dataset, batch_size=1, num_workers=0, train=False)
 
-    for chunk in tqdm(list(get_chunks(items, bs)), unit='batch'):
-
-        prompts = chunk
+    # for chunk in tqdm(list(get_chunks(items, bs)), unit='batch'):
+    for i, ref_img in enumerate(loader):
+        ref_img = ref_img.to('cuda')
         hw = torch.tensor([[args.image_size, args.image_size]], dtype=torch.float, device=device).repeat(bs, 1)
         ar = torch.tensor([[1.]], device=device).repeat(bs, 1)
         latent_size_h, latent_size_w = latent_size, latent_size
-        if args.model_type == 'pixart':
-            null_y = model.y_embedder.y_embedding[None].repeat(len(prompts), 1, 1)[:, None]
-        else:
-            null_y = torch.tensor([1000] * len(prompts), device=device)
-        with torch.no_grad():
-            caption_embs, emb_masks = null_y, None
-            if args.sampling_algo == 'iddpm':
-                # Create sampling noise:
-                n = len(prompts)
-                z = torch.randn(n, 4, latent_size_h, latent_size_w, device=device).repeat(2, 1, 1, 1)
-                model_kwargs = dict(y=torch.cat([caption_embs, null_y]),
-                                    cfg_scale=cfg_scale, data_info={'img_hw': hw, 'aspect_ratio': ar}, mask=emb_masks)
-                diffusion = IDDPM(str(sample_steps))
-                # Sample images:
-                samples = diffusion.p_sample_loop(
-                    model.forward_with_cfg, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=True,
-                    device=device
-                )
-                samples, _ = samples.chunk(2, dim=0)  # Remove null class samples
-            elif args.sampling_algo == 'dpm-solver':
-                # Create sampling noise:
-                n = len(prompts)
-                z = torch.randn(n, 4, latent_size_h, latent_size_w, device=device)
-                model_kwargs = dict(data_info={'img_hw': hw, 'aspect_ratio': ar}, mask=emb_masks)
-                dpm_solver = DPMS(model.forward_with_dpmsolver,
-                                  condition=caption_embs,
-                                  uncondition=null_y,
-                                  cfg_scale=cfg_scale,
-                                  model_kwargs=model_kwargs)
-                samples = dpm_solver.sample(
-                    z,
-                    steps=sample_steps,
-                    order=2,
-                    skip_type="time_uniform",
-                    method="multistep",
-                )
-            elif args.sampling_algo == 'sa-solver':
-                # Create sampling noise:
-                n = len(prompts)
-                model_kwargs = dict(data_info={'img_hw': hw, 'aspect_ratio': ar}, mask=emb_masks)
-                sa_solver = SASolverSampler(model.forward_with_dpmsolver, device=device)
-                samples = sa_solver.sample(
-                    S=25,
-                    batch_size=n,
-                    shape=(4, latent_size_h, latent_size_w),
-                    eta=1,
-                    conditioning=caption_embs,
-                    unconditional_conditioning=null_y,
-                    unconditional_guidance_scale=cfg_scale,
-                    model_kwargs=model_kwargs,
-                )[0]
+        null_y = model.y_embedder.y_embedding[None].repeat(1, 1, 1)[:, None]
+        
+        y = operator.forward(ref_img)
+        
+        caption_embs, emb_masks = null_y, None
+        n = 1
+        z = torch.randn(n, 4, latent_size_h, latent_size_w, device=device).repeat(2, 1, 1, 1)
+        model_kwargs = dict(y=torch.cat([caption_embs, null_y]),
+                            cfg_scale=cfg_scale, data_info={'img_hw': hw, 'aspect_ratio': ar}, mask=emb_masks)
+        diffusion = IDDPM(str(sample_steps))
+        
+        samples = diffusion.p_sample_loop(
+            model.forward, z.shape, measurement=y, measurement_cond_fn=measurement_cond_fn, vae=vae, noise=z, clip_denoised=False, model_kwargs=model_kwargs, progress=False, device=device
+        )
+        samples.unsqueeze_(0)
         samples = vae.decode(samples / 0.18215).sample
         torch.cuda.empty_cache()
+        
         # Save images:
         os.umask(0o000)  # file permission: 666; dir permission: 777
-        for i, sample in enumerate(samples):
-            save_path = os.path.join(save_root, f"{prompts[i][:100]}.png")
-            print("Saving path: ", save_path)
-            save_image(sample, save_path, nrow=1, normalize=True, value_range=(-1, 1))
-
+        save_image(samples, "sample256_new2_"+str(i)+".png", nrow=1, normalize=True, value_range=(-1, 1))
 
 if __name__ == '__main__':
     args = get_args()
@@ -134,14 +113,7 @@ if __name__ == '__main__':
     weight_dtype = torch.float16
     print(f"Inference with {weight_dtype}")
 
-    # model setting
-    if args.model_type == 'pixart':
-        if args.image_size == 512 or 256:
-            model = PixArt_XL_2(input_size=latent_size, lewei_scale=lewei_scale[args.image_size]).to(device)
-        else:
-            model = PixArtMS_XL_2(input_size=latent_size, lewei_scale=lewei_scale[args.image_size]).to(device)
-    else:
-        model = DiT_XL_2(input_size=latent_size, num_classes=1000).to(device)
+    model = PixArt_XL_2(input_size=latent_size, lewei_scale=lewei_scale[args.image_size]).to(device)
 
     print(f"Generating sample from ckpt: {args.model_path}")
     state_dict = find_model(args.model_path)

@@ -44,6 +44,9 @@ PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python CUDA_VISIBLE_DEVICES=2 python infe
 * fid: 24.65
 ### finetune SAM 2 ImageNet 3e4
 * fid: 26.68
+### finetune DIT 2 ImageNet 1e4
+### finetune DIT 2 ImageNet 2e4
+### finetune DIT 2 ImageNet 3e4
 
 ## 512x512 
 ### No finetune ART
@@ -88,7 +91,13 @@ python -u -m torch.distributed.launch --nproc_per_node=1 --master_port=12345 tra
 
 CUDA_VISIBLE_DEVICES=1 python inference.py --model_type dit --model_path /NEW_EDS/JJ_Group/xutd/PixArt-alpha/bins_share/DiT-XL-2-256x256.pt
 
-CUDA_VISIBLE_DEVICES=0 python -u -m torch.distributed.launch --nproc_per_node=1 --master_port=12345 train.py \
+nohup python -u -m torch.distributed.launch --nproc_per_node=8 --master_port=12345 train.py \
 ./notebooks/DiT_XL_2_img256_uncond.py \
 --work-dir output/trained_256x256_imagenet_dit \
---loss_report_name="train_loss"
+--loss_report_name="train_loss" &
+
+
+nohup python -u -m torch.distributed.launch --nproc_per_node=1 --master_port=12345 train.py \
+./notebooks/PixArt_xl2_img256_uncond.py \
+--work-dir output/trained_256x256_imagenet_pa \
+--loss_report_name="train_loss" &

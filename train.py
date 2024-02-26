@@ -74,9 +74,9 @@ def train():
             if config.model == 'DiT_XL_2':
                 y = torch.tensor([1000] * bs, device=clean_images.device)
             else:
-                y = batch[1]
-            y_mask = batch[2]
-            data_info = batch[3]
+                y = model.module.y_embedder.y_embedding[None].detach().clone().repeat(bs, 1, 1)[:, None]
+            y_mask = None
+            data_info = batch[1]
 
             timesteps = torch.randint(0, config.train_sampling_steps, (bs,), device=clean_images.device).long()
             grad_norm = None
@@ -265,7 +265,7 @@ if __name__ == '__main__':
                             config.get('fp32_attention', False),
                             input_size=latent_size,
                             num_classes=1000,
-                            class_dropout_prob= config.class_dropout_prob
+                            class_dropout_prob=config.class_dropout_prob
                             ).train()
 
     logger.info(f"{model.__class__.__name__} Model Parameters: {sum(p.numel() for p in model.parameters()):,}")
